@@ -1,0 +1,13 @@
+# Downloaded / generated RAG data
+data/raw/
+data/processed/
+data/output/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Tools
+.pytest_cache/
+.mypy_cache/
