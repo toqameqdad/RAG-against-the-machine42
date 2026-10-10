@@ -19,8 +19,8 @@ def chunk_file(
         return []
 
     relative_path = file_path.resolve().relative_to(
-		project_root.resolve()
-	).as_posix()
+        project_root.resolve()
+    ).as_posix()
 
     if file_path.suffix == ".py":
         return chunk_python(
@@ -62,6 +62,7 @@ def build_chunks(
         )
 
     return chunks
+
 
 def save_chunks(
     chunks: list[Chunk],

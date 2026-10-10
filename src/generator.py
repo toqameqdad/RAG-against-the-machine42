@@ -16,6 +16,30 @@ from src.models import (
 from src.retriever import BM25Retriever
 from src.utils import load_json_file
 
+MAX_CONTEXT_SOURCES = 7
+MAX_NEW_TOKENS = 150
+
+SYSTEM_PROMPT = (
+    "You answer questions about the vLLM codebase and documentation "
+    "using ONLY the provided context.\n"
+    "Rules:\n"
+    "1. Answer in one or two complete sentences.\n"
+    "2. Copy exact names from the context (endpoints, flags, methods, "
+    "class names, versions, commands). Never invent a name.\n"
+    "3. Start with Yes or No ONLY if the question begins with Is, Are, "
+    "Can, Does or Do. Otherwise answer directly.\n"
+    "4. Always give the best answer you can from the context, even if "
+    "it is partial. Reply 'The context does not contain this "
+    "information.' ONLY if nothing in the context relates to the "
+    "question.\n"
+    "5. Do not repeat the question.\n"
+    "6. Never write a URL unless it appears exactly in the context. "
+    "To point to documentation, give the file path from the source "
+    "header.\n"
+    "7. For questions asking for a command, give the full command "
+    "with its main arguments as shown in the context."
+)
+
 
 def load_source_text(source: MinimalSource) -> str:
     """Load the exact text covered by a retrieved source."""
@@ -34,11 +58,11 @@ def build_context(sources: list[MinimalSource]) -> str:
     """Build model context from retrieved sources."""
     parts: list[str] = []
 
-    for source in sources:
+    for number, source in enumerate(sources, start=1):
         source_text = load_source_text(source)
 
         parts.append(
-            f"Source: {source.file_path}\n"
+            f"[Source {number}: {source.file_path}]\n"
             f"{source_text}"
         )
 
@@ -83,22 +107,15 @@ class AnswerGenerator:
         sources: list[MinimalSource],
     ) -> str:
         """Generate an answer using retrieved sources."""
-        context = build_context(sources)
+        context = build_context(sources[:MAX_CONTEXT_SOURCES])
 
         messages = [
-            {
-                "role": "system",
-                "content": (
-                    "Answer only from the provided context. "
-                    "Do not invent information. "
-                    "Give one short and direct answer."
-                ),
-            },
+            {"role": "system", "content": SYSTEM_PROMPT},
             {
                 "role": "user",
                 "content": (
                     f"Context:\n{context}\n\n"
-                    f"Question:\n{question}"
+                    f"Question: {question}"
                 ),
             },
         ]
@@ -117,11 +134,11 @@ class AnswerGenerator:
 
         outputs = self.model.generate(
             **inputs,
-            max_new_tokens=80,
-            do_sample=True,
-            temperature=0.7,
-            top_p=0.8,
-            top_k=20,
+            max_new_tokens=MAX_NEW_TOKENS,
+            do_sample=False,
+            temperature=None,
+            top_p=None,
+            top_k=None,
             repetition_penalty=1.1,
             pad_token_id=self.tokenizer.eos_token_id,
             eos_token_id=self.tokenizer.eos_token_id,
@@ -165,11 +182,11 @@ def answer(
         answer=generated_answer,
     )
 
+
 def answer_dataset(
     student_search_results_path: str,
 ) -> StudentSearchResultsAndAnswer:
     """Generate answers for all questions in saved search results."""
-    path = Path(student_search_results_path)
 
     data = load_json_file(student_search_results_path)
 
@@ -179,7 +196,7 @@ def answer_dataset(
     answers: list[MinimalAnswer] = []
 
     for result in tqdm(
-        search_results.search_results[:10],
+        search_results.search_results[10:20],
         desc="Generating answers",
     ):
         generated_answer = generator.generate(
@@ -200,6 +217,7 @@ def answer_dataset(
         search_results=answers,
         k=search_results.k,
     )
+
 
 def save_answers(
     results: StudentSearchResultsAndAnswer,

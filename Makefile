@@ -16,8 +16,18 @@ test:
 	uv run python -m pytest
 
 lint:
-	uv run flake8 src tests
+	uv run flake8 . --extend-exclude=.venv
+	uv run mypy src \
+		--follow-imports=skip \
+		--warn-return-any \
+		--warn-unused-ignores \
+		--ignore-missing-imports \
+		--disallow-untyped-defs \
+		--check-untyped-defs
 
+lint-strict:
+	uv run flake8 .
+	uv run mypy . --strict
 typecheck:
 	uv run mypy src
 

@@ -18,7 +18,6 @@ from src.utils import load_json_file
 
 def load_chunks(chunks_path: str) -> list[Chunk]:
     """Load indexed chunks from a JSON file."""
-    path = Path(chunks_path)
 
     data = load_json_file(chunks_path)
 
@@ -99,7 +98,6 @@ def search_dataset(
     k: int,
 ) -> StudentSearchResults:
     """Search all questions in a dataset."""
-    path = Path(dataset_path)
 
     data = load_json_file(dataset_path)
 

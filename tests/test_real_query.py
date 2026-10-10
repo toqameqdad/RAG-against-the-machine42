@@ -34,4 +34,3 @@ for i, result in enumerate(results, start=1):
         f"   {result.first_character_index}"
         f" -> {result.last_character_index}"
     )
-

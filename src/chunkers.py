@@ -13,7 +13,7 @@ def split_large_section(
     """Split a section while preserving line boundaries when possible."""
     if max_chunk_size <= 0:
         raise ValueError("max_chunk_size must be greater than 0")
-    
+
     chunks: list[Chunk] = []
 
     lines = text.splitlines(keepends=True)
@@ -141,6 +141,7 @@ def chunk_text(
 
     return chunks
 
+
 def get_line_start_indexes(text: str) -> list[int]:
     """Return the character index where each line starts."""
     indexes = [0]
@@ -150,6 +151,7 @@ def get_line_start_indexes(text: str) -> list[int]:
             indexes.append(index + 1)
 
     return indexes
+
 
 def chunk_python(
     text: str,

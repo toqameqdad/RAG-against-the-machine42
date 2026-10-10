@@ -1,7 +1,5 @@
 """Evaluate retrieval results using recall@k."""
 
-import json
-from pathlib import Path
 from src.utils import load_json_file
 
 
@@ -40,8 +38,6 @@ def evaluate_recall(
     k: int = 5,
 ) -> float:
     """Calculate average recall@k over all questions."""
-    student_path = Path(student_results_path)
-    answered_path = Path(answered_dataset_path)
 
     student_data = load_json_file(student_results_path)
 
