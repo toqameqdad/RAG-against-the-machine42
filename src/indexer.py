@@ -5,6 +5,7 @@ import json
 
 from src.chunkers import chunk_python, chunk_text
 from src.models import Chunk
+from src.utils import require_directory
 
 
 def chunk_file(
@@ -45,7 +46,7 @@ def build_chunks(
 ) -> list[Chunk]:
     """Read supported files and build searchable chunks."""
     project_root = Path.cwd().resolve()
-    raw_path = Path(raw_directory).resolve()
+    raw_path = require_directory(raw_directory).resolve()
 
     chunks: list[Chunk] = []
 
@@ -59,6 +60,11 @@ def build_chunks(
                 project_root,
                 max_chunk_size,
             )
+        )
+
+    if not chunks:
+        raise ValueError(
+            "No supported files were found to index"
         )
 
     return chunks

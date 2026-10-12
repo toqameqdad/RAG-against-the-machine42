@@ -1,10 +1,11 @@
 """Generate grounded answers using retrieved source chunks."""
 
-import uuid
 import json
+import uuid
 from pathlib import Path
-from tqdm import tqdm
+from typing import Any, cast
 
+from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from src.models import (
@@ -14,39 +15,61 @@ from src.models import (
     StudentSearchResultsAndAnswer,
 )
 from src.retriever import BM25Retriever
-from src.utils import load_json_file
+from src.utils import (
+    load_json_file,
+    require_non_empty_text,
+    require_positive_k,
+)
 
-MAX_CONTEXT_SOURCES = 7
+MAX_CONTEXT_SOURCES = 3
 MAX_NEW_TOKENS = 150
 
 SYSTEM_PROMPT = (
-    "You answer questions about the vLLM codebase and documentation "
-    "using ONLY the provided context.\n"
-    "Rules:\n"
-    "1. Answer in one or two complete sentences.\n"
-    "2. Copy exact names from the context (endpoints, flags, methods, "
-    "class names, versions, commands). Never invent a name.\n"
-    "3. Start with Yes or No ONLY if the question begins with Is, Are, "
-    "Can, Does or Do. Otherwise answer directly.\n"
-    "4. Always give the best answer you can from the context, even if "
-    "it is partial. Reply 'The context does not contain this "
-    "information.' ONLY if nothing in the context relates to the "
-    "question.\n"
-    "5. Do not repeat the question.\n"
-    "6. Never write a URL unless it appears exactly in the context. "
-    "To point to documentation, give the file path from the source "
-    "header.\n"
-    "7. For questions asking for a command, give the full command "
-    "with its main arguments as shown in the context."
+    "Answer questions about vLLM using only the provided context.\n"
+    "Use the most directly relevant source.\n"
+    "Do not invent information.\n"
+    "Copy exact technical names, commands, flags, endpoints, "
+    "methods, classes, and versions from the context.\n"
+    "If the context does not contain the answer, say so.\n"
+    "Answer concisely and directly."
 )
 
 
 def load_source_text(source: MinimalSource) -> str:
     """Load the exact text covered by a retrieved source."""
+    if source.first_character_index < 0:
+        raise ValueError(
+            "Source start index cannot be negative"
+        )
+
+    if (
+        source.last_character_index
+        < source.first_character_index
+    ):
+        raise ValueError(
+            "Source character range is invalid"
+        )
+
     path = Path(source.file_path)
+
+    if not path.exists():
+        raise ValueError(
+            f"Source file not found: {source.file_path}"
+        )
+
+    if not path.is_file():
+        raise ValueError(
+            f"Source path is not a file: {source.file_path}"
+        )
 
     with path.open("r", encoding="utf-8") as file:
         text = file.read()
+
+    if source.last_character_index > len(text):
+        raise ValueError(
+            f"Source range exceeds file length: "
+            f"{source.file_path}"
+        )
 
     return text[
         source.first_character_index:
@@ -54,11 +77,16 @@ def load_source_text(source: MinimalSource) -> str:
     ]
 
 
-def build_context(sources: list[MinimalSource]) -> str:
+def build_context(
+    sources: list[MinimalSource],
+) -> str:
     """Build model context from retrieved sources."""
     parts: list[str] = []
 
-    for number, source in enumerate(sources, start=1):
+    for number, source in enumerate(
+        sources[:MAX_CONTEXT_SOURCES],
+        start=1,
+    ):
         source_text = load_source_text(source)
 
         parts.append(
@@ -85,6 +113,28 @@ def build_prompt(
     )
 
 
+def extract_bash_command(context: str) -> str | None:
+    """Extract the first bash command block from context."""
+    marker = "```bash"
+
+    start = context.find(marker)
+    if start == -1:
+        return None
+
+    start += len(marker)
+
+    end = context.find("```", start)
+    if end == -1:
+        return None
+
+    command = context[start:end].strip()
+
+    if not command:
+        return None
+
+    return command
+
+
 class AnswerGenerator:
     """Generate grounded answers with Qwen."""
 
@@ -107,10 +157,18 @@ class AnswerGenerator:
         sources: list[MinimalSource],
     ) -> str:
         """Generate an answer using retrieved sources."""
-        context = build_context(sources[:MAX_CONTEXT_SOURCES])
+        context = build_context(sources)
+
+        command = extract_bash_command(context)
+
+        if command is not None and "command" in question.lower():
+            return command
 
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "system",
+                "content": SYSTEM_PROMPT,
+            },
             {
                 "role": "user",
                 "content": (
@@ -132,13 +190,12 @@ class AnswerGenerator:
             return_tensors="pt",
         )
 
-        outputs = self.model.generate(
+        model = cast(Any, self.model)
+
+        outputs = model.generate(
             **inputs,
             max_new_tokens=MAX_NEW_TOKENS,
             do_sample=False,
-            temperature=None,
-            top_p=None,
-            top_k=None,
             repetition_penalty=1.1,
             pad_token_id=self.tokenizer.eos_token_id,
             eos_token_id=self.tokenizer.eos_token_id,
@@ -148,9 +205,12 @@ class AnswerGenerator:
             inputs["input_ids"].shape[1]:
         ]
 
-        answer = self.tokenizer.decode(
-            generated_tokens,
-            skip_special_tokens=True,
+        answer = cast(
+            str,
+            self.tokenizer.decode(
+                generated_tokens,
+                skip_special_tokens=True,
+            ),
         )
 
         return answer.strip()
@@ -162,11 +222,26 @@ def answer(
     k: int = 5,
 ) -> MinimalAnswer:
     """Retrieve sources and generate an answer for one question."""
-    retriever = BM25Retriever(chunks_path)
+    require_non_empty_text(
+        question,
+        "Question",
+    )
+
+    require_positive_k(k)
+
+    retriever = BM25Retriever(
+        chunks_path,
+    )
+
     sources = retriever.search(
         query=question,
         k=k,
     )
+
+    if not sources:
+        raise ValueError(
+            "No relevant sources found for the question"
+        )
 
     generator = AnswerGenerator()
 
@@ -187,16 +262,20 @@ def answer_dataset(
     student_search_results_path: str,
 ) -> StudentSearchResultsAndAnswer:
     """Generate answers for all questions in saved search results."""
+    data = load_json_file(
+        student_search_results_path
+    )
 
-    data = load_json_file(student_search_results_path)
-
-    search_results = StudentSearchResults(**data)
+    search_results = StudentSearchResults(
+        **data
+    )
 
     generator = AnswerGenerator()
+
     answers: list[MinimalAnswer] = []
 
     for result in tqdm(
-        search_results.search_results[10:20],
+        search_results.search_results,
         desc="Generating answers",
     ):
         generated_answer = generator.generate(
@@ -231,7 +310,10 @@ def save_answers(
         exist_ok=True,
     )
 
-    with path.open("w", encoding="utf-8") as file:
+    with path.open(
+        "w",
+        encoding="utf-8",
+    ) as file:
         json.dump(
             results.model_dump(),
             file,

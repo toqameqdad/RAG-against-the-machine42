@@ -47,6 +47,9 @@ def search(
         query=query,
         k=k,
     )
+    if not results:
+        print("No relevant sources found.")
+        return
 
     for index_number, source in enumerate(results, start=1):
         print(
@@ -102,7 +105,7 @@ def answer_command(
 
 def answer_dataset_command(
     student_search_results_path: str,
-    save_directory: str = "data/output/answers",
+    save_directory: str = "data/output/search_results_and_answers",
 ) -> None:
     """Generate answers for a saved search dataset."""
     results = answer_dataset(

@@ -11,3 +11,7 @@ __pycache__/
 # Tools
 .pytest_cache/
 .mypy_cache/
+
+moulinette
+compare_answers.py
+tests/

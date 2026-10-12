@@ -14,6 +14,10 @@ def split_large_section(
     if max_chunk_size <= 0:
         raise ValueError("max_chunk_size must be greater than 0")
 
+    if max_chunk_size > 2000:
+        raise ValueError(
+            "max_chunk_size must not exceed 2000"
+        )
     chunks: list[Chunk] = []
 
     lines = text.splitlines(keepends=True)

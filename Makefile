@@ -1,24 +1,35 @@
-.PHONY: install run index search test lint typecheck clean
+ifneq ($(wildcard /goinfre/$(USER)),)
+UV_ENV := UV_CACHE_DIR=/goinfre/$(USER)/uv-cache \
+	HF_HOME=/goinfre/$(USER)/hf-cache \
+	UV_PROJECT_ENVIRONMENT=/goinfre/$(USER)/rag-venv \
+	UV_LINK_MODE=copy
+else
+UV_ENV :=
+endif
+
+.PHONY: install run debug clean lint lint-strict index search
 
 install:
-	uv sync
+	$(UV_ENV) uv sync
 
 run:
-	uv run python -m src
+	$(UV_ENV) uv run python -m src
 
-index:
-	uv run python -m src index
+debug:
+	$(UV_ENV) uv run python -m pdb -m src
 
-search:
-	uv run python -m src search
-
-test:
-	uv run python -m pytest
+clean:
+	find . -type d -name "__pycache__" -exec rm -rf {} +
+	find . -type f -name "*.pyc" -delete
+	rm -rf .mypy_cache
+	rm -rf .pytest_cache
+	rm -rf .ruff_cache
+	rm -rf htmlcov
+	rm -rf .coverage
 
 lint:
-	uv run flake8 . --extend-exclude=.venv
-	uv run mypy src \
-		--follow-imports=skip \
+	$(UV_ENV) uv run flake8 src
+	$(UV_ENV) uv run mypy src \
 		--warn-return-any \
 		--warn-unused-ignores \
 		--ignore-missing-imports \
@@ -26,13 +37,11 @@ lint:
 		--check-untyped-defs
 
 lint-strict:
-	uv run flake8 .
-	uv run mypy . --strict
-typecheck:
-	uv run mypy src
+	$(UV_ENV) uv run flake8 src
+	$(UV_ENV) uv run mypy src --strict
 
-clean:
-	rm -rf .pytest_cache
-	rm -rf .mypy_cache
-	rm -rf __pycache__
-	find . -type d -name "__pycache__" -exec rm -rf {} +
+index:
+	$(UV_ENV) uv run python -m src index --max_chunk_size 2000
+
+search:
+	$(UV_ENV) uv run python -m src search "What is vLLM?" --k 5

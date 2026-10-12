@@ -13,7 +13,11 @@ from src.models import (
     MinimalSource,
     StudentSearchResults,
 )
-from src.utils import load_json_file
+from src.utils import (
+    load_json_file,
+    require_non_empty_text,
+    require_positive_k,
+)
 
 
 def load_chunks(chunks_path: str) -> list[Chunk]:
@@ -35,6 +39,8 @@ class BM25Retriever:
     def __init__(self, chunks_path: str) -> None:
         """Load chunks and build the BM25 index once."""
         self.chunks = load_chunks(chunks_path)
+        if not self.chunks:
+            raise ValueError("Chunk index is empty")
 
         tokenized_corpus = [
             tokenize(chunk.text)
@@ -43,13 +49,18 @@ class BM25Retriever:
 
         self.bm25 = BM25Okapi(tokenized_corpus)
 
-    def search(self, query: str, k: int = 5) -> list[MinimalSource]:
+    def search(
+        self,
+        query: str,
+        k: int = 5,
+    ) -> list[MinimalSource]:
         """Return the top-k most relevant sources for a query."""
+        require_non_empty_text(query, "Query")
+        require_positive_k(k)
 
-        if not query.strip():
-            return []
+        tokenized_query = tokenize(query)
 
-        if k <= 0:
+        if not tokenized_query:
             return []
 
         tokenized_query = tokenize(query)
@@ -99,7 +110,16 @@ def search_dataset(
 ) -> StudentSearchResults:
     """Search all questions in a dataset."""
 
+    require_positive_k(k)
     data = load_json_file(dataset_path)
+    if not isinstance(data, dict):
+        raise ValueError("Dataset JSON root must be an object")
+
+    if "rag_questions" not in data:
+        raise ValueError("Dataset is missing 'rag_questions'")
+
+    if not isinstance(data["rag_questions"], list):
+        raise ValueError("'rag_questions' must be a list")
 
     retriever = BM25Retriever(chunks_path)
 
@@ -109,6 +129,14 @@ def search_dataset(
         data["rag_questions"],
         desc="Searching questions",
     ):
+        if not isinstance(item, dict):
+            raise ValueError("Each dataset item must be an object")
+
+        if "question_id" not in item or "question" not in item:
+            raise ValueError(
+                "Each dataset item must contain "
+                "'question_id' and 'question'"
+            )
         question_id = item["question_id"]
         question = item["question"]
 

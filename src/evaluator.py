@@ -1,6 +1,10 @@
 """Evaluate retrieval results using recall@k."""
 
-from src.utils import load_json_file
+from typing import Any
+from src.utils import (
+    load_json_file,
+    require_positive_k,
+)
 
 
 def ranges_overlap(
@@ -9,11 +13,41 @@ def ranges_overlap(
     expected_start: int,
     expected_end: int,
 ) -> bool:
-    """Return True when two character ranges overlap."""
-    return (
-        retrieved_start < expected_end
-        and expected_start < retrieved_end
+    """Return True when the range IoU is at least 0.05."""
+
+    intersection_start = max(
+        retrieved_start,
+        expected_start,
     )
+
+    intersection_end = min(
+        retrieved_end,
+        expected_end,
+    )
+
+    intersection = max(
+        0,
+        intersection_end - intersection_start,
+    )
+
+    if intersection == 0:
+        return False
+
+    retrieved_length = retrieved_end - retrieved_start
+    expected_length = expected_end - expected_start
+
+    union = (
+        retrieved_length
+        + expected_length
+        - intersection
+    )
+
+    if union <= 0:
+        return False
+
+    iou = intersection / union
+
+    return iou >= 0.05
 
 
 def source_matches(
@@ -39,11 +73,31 @@ def evaluate_recall(
 ) -> float:
     """Calculate average recall@k over all questions."""
 
+    require_positive_k(k)
     student_data = load_json_file(student_results_path)
 
     answered_data = load_json_file(answered_dataset_path)
+    if not isinstance(student_data, dict):
+        raise ValueError(
+            "Student results JSON root must be an object"
+        )
 
-    expected_by_id = {
+    if "search_results" not in student_data:
+        raise ValueError(
+            "Student results are missing 'search_results'"
+        )
+
+    if not isinstance(answered_data, dict):
+        raise ValueError(
+            "Dataset JSON root must be an object"
+        )
+
+    if "rag_questions" not in answered_data:
+        raise ValueError(
+            "Dataset is missing 'rag_questions'"
+        )
+
+    expected_by_id: dict[str, dict[str, Any]] = {
         item["question_id"]: item
         for item in answered_data["rag_questions"]
     }
