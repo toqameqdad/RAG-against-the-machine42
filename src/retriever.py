@@ -67,6 +67,15 @@ class BM25Retriever:
 
         scores = self.bm25.get_scores(tokenized_query)
 
+        if max(scores) <= 0:
+            return []
+
+        ranked_indexes = sorted(
+            range(len(scores)),
+            key=lambda index: scores[index],
+            reverse=True,
+        )
+
         ranked_indexes = sorted(
             range(len(scores)),
             key=lambda index: scores[index],

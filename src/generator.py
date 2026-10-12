@@ -159,11 +159,6 @@ class AnswerGenerator:
         """Generate an answer using retrieved sources."""
         context = build_context(sources)
 
-        command = extract_bash_command(context)
-
-        if command is not None and "command" in question.lower():
-            return command
-
         messages = [
             {
                 "role": "system",
