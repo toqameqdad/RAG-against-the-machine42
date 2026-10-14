@@ -105,7 +105,7 @@ def answer_command(
 
 def answer_dataset_command(
     student_search_results_path: str,
-    save_directory: str = "data/output/search_results_and_answers",
+    save_directory: str = "data/output/search_results_and_answer",
 ) -> None:
     """Generate answers for a saved search dataset."""
     results = answer_dataset(
