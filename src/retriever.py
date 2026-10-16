@@ -3,8 +3,8 @@
 import json
 import re
 from pathlib import Path
-from tqdm import tqdm
 
+from tqdm import tqdm
 from rank_bm25 import BM25Okapi
 
 from src.models import (
@@ -39,11 +39,12 @@ class BM25Retriever:
     def __init__(self, chunks_path: str) -> None:
         """Load chunks and build the BM25 index once."""
         self.chunks = load_chunks(chunks_path)
+
         if not self.chunks:
             raise ValueError("Chunk index is empty")
 
         tokenized_corpus = [
-            tokenize(chunk.text)
+            tokenize(chunk.file_path + " " + chunk.text)
             for chunk in self.chunks
         ]
 
@@ -63,18 +64,10 @@ class BM25Retriever:
         if not tokenized_query:
             return []
 
-        tokenized_query = tokenize(query)
-
         scores = self.bm25.get_scores(tokenized_query)
 
         if max(scores) <= 0:
             return []
-
-        ranked_indexes = sorted(
-            range(len(scores)),
-            key=lambda index: scores[index],
-            reverse=True,
-        )
 
         ranked_indexes = sorted(
             range(len(scores)),
@@ -120,7 +113,9 @@ def search_dataset(
     """Search all questions in a dataset."""
 
     require_positive_k(k)
+
     data = load_json_file(dataset_path)
+
     if not isinstance(data, dict):
         raise ValueError("Dataset JSON root must be an object")
 
@@ -146,6 +141,7 @@ def search_dataset(
                 "Each dataset item must contain "
                 "'question_id' and 'question'"
             )
+
         question_id = item["question_id"]
         question = item["question"]
 
