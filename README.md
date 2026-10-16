@@ -50,6 +50,9 @@ The project is divided into independent stages:
                     Exact source text loading
                                |
                                v
+                 Token-budget source selection
+                               |
+                               v
                        Context augmentation
                                |
                                v
@@ -236,6 +239,24 @@ The system prompt instructs the model to:
 - avoid unnecessary repetition
 
 This grounding is important because the language model is intentionally small and should rely primarily on the retrieved sources.
+
+### Token budget and source selection
+
+The generator uses the required default model, `Qwen/Qwen3-0.6B`, and builds the prompt with the model's chat template. It does **not** impose a fixed three-source limit. Instead, it considers the retrieved chunks in their BM25 ranking order and includes each complete source when it fits into the available token budget. A source that does not fit is skipped; later, shorter sources may still be included.
+
+The input budget is calculated from the model context window:
+
+```text
+maximum_input_tokens = max_position_embeddings - MAX_NEW_TOKENS - TOKEN_SAFETY_MARGIN
+MAX_NEW_TOKENS = 150
+TOKEN_SAFETY_MARGIN = 128
+```
+
+The implementation tokenizes candidate prompts before accepting an additional source. It preserves the full system prompt and user question, and checks the final input size before calling `model.generate()`. If no retrieved source fits, or the question and system prompt alone exceed the budget, generation raises a clear error rather than proceeding with an oversized prompt.
+
+**Trade-off:** this strategy avoids arbitrarily discarding all sources after the third result and avoids splitting a source in the middle, but it can skip a highly ranked chunk that is too large. More context can also introduce distractions, so adding more sources does not guarantee a better answer.
+
+During development, a temporary 1,000-token context limit was used to test the guard: 680 input tokens plus a 150-token output budget totaled 830 of 1,000 tokens. The normal model limit was not permanently changed.
 
 ---
 
@@ -585,7 +606,39 @@ Input and output paths used by dataset commands are configurable through CLI arg
 
 ## Performance Analysis
 
-The retrieval system was tested using the provided public datasets and the official moulinette.
+The retrieval system was tested using the provided public datasets and the official moulinette. Results vary with the dataset and environment, so the earlier development measurements below are kept separate from the latest private examination.
+
+### Latest private retrieval examination (2026-10-16)
+
+The official `exams/scripts/exam_retrieval.sh` script completed all four checks successfully:
+
+| Check | Recorded result | Required limit | Status |
+| --- | ---: | ---: | --- |
+| Indexing time | 26 seconds | at most 300 seconds | PASS |
+| Warm retrieval throughput | 200 questions in 30 seconds (15 seconds for docs + 15 for code) | at most 90 seconds | PASS |
+| Documentation Recall@5 | 82.0% (100 questions) | at least 80% | PASS |
+| Code Recall@5 | 55.0% (100 questions) | at least 50% | PASS |
+
+The script reported **FINAL RESULT: 4/4, STATUS: PASS**.
+
+Additional measured recall values:
+
+| Dataset | Recall@1 | Recall@3 | Recall@5 | Recall@10 |
+| --- | ---: | ---: | ---: | ---: |
+| Documentation (private) | 54.0% | 76.0% | 82.0% | 88.0% |
+| Code (private) | 31.0% | 49.0% | 55.0% | 64.0% |
+
+Run the retrieval examination from the `rag-benchmark` parent directory (not from `student`):
+
+```bash
+bash exams/scripts/exam_retrieval.sh \
+  --student-path ./student \
+  --moulinette-path ./moulinette
+```
+
+### Earlier development measurements
+
+The figures below are from earlier public-dataset/development runs and should not be confused with the private examination above.
 
 ### Documentation dataset
 
@@ -729,6 +782,10 @@ This was too slow for dataset retrieval.
 The retriever was redesigned so the chunks and BM25 index are loaded once and reused across all questions.
 
 This substantially reduced dataset retrieval time.
+
+### Source count versus token budget
+
+An earlier version used a fixed maximum of three context sources. The current approach considers all retrieved top-k source candidates while enforcing a token budget. This increases flexibility for multi-file questions, at the cost of more tokenization work and the possibility that less-relevant context affects the small generator.
 
 ### Small grounded generation model
 
