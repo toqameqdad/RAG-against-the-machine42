@@ -21,8 +21,8 @@ from src.utils import (
     require_positive_k,
 )
 
-MAX_CONTEXT_SOURCES = 3
 MAX_NEW_TOKENS = 150
+TOKEN_SAFETY_MARGIN = 128
 
 SYSTEM_PROMPT = (
     "Answer questions about vLLM using only the provided context.\n"
@@ -67,7 +67,7 @@ def load_source_text(source: MinimalSource) -> str:
 
     if source.last_character_index > len(text):
         raise ValueError(
-            f"Source range exceeds file length: "
+            "Source range exceeds file length: "
             f"{source.file_path}"
         )
 
@@ -80,13 +80,10 @@ def load_source_text(source: MinimalSource) -> str:
 def build_context(
     sources: list[MinimalSource],
 ) -> str:
-    """Build model context from retrieved sources."""
+    """Build context from all retrieved sources."""
     parts: list[str] = []
 
-    for number, source in enumerate(
-        sources[:MAX_CONTEXT_SOURCES],
-        start=1,
-    ):
+    for number, source in enumerate(sources, start=1):
         source_text = load_source_text(source)
 
         parts.append(
@@ -156,34 +153,116 @@ class AnswerGenerator:
         question: str,
         sources: list[MinimalSource],
     ) -> str:
-        """Generate an answer using retrieved sources."""
-        context = build_context(sources)
+        """Generate an answer within the model token budget."""
+        require_non_empty_text(question, "Question")
 
-        messages = [
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT,
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Context:\n{context}\n\n"
-                    f"Question: {question}"
+        model_limit = self.model.config.max_position_embeddings
+
+        max_input_tokens = (
+            model_limit
+            - MAX_NEW_TOKENS
+            - TOKEN_SAFETY_MARGIN
+        )
+
+        if max_input_tokens <= 0:
+            raise ValueError(
+                "Model context window is too small"
+            )
+
+        def make_prompt(context_text: str) -> str:
+            messages = [
+                {
+                    "role": "system",
+                    "content": SYSTEM_PROMPT,
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Context:\n{context_text}\n\n"
+                        f"Question: {question}"
+                    ),
+                },
+            ]
+
+            return cast(
+                str,
+                self.tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=False,
                 ),
-            },
-        ]
+            )
 
-        prompt = self.tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=False,
-        )
+        def tokenize_prompt(prompt_text: str) -> Any:
+            return self.tokenizer(
+                prompt_text,
+                return_tensors="pt",
+            )
 
-        inputs = self.tokenizer(
-            prompt,
-            return_tensors="pt",
-        )
+        empty_inputs = tokenize_prompt(make_prompt(""))
+
+        if (
+            empty_inputs["input_ids"].shape[1]
+            > max_input_tokens
+        ):
+            raise ValueError(
+                "Question and system prompt exceed "
+                "the model token limit"
+            )
+
+        selected_parts: list[str] = []
+
+        for source in sources:
+            source_text = load_source_text(source)
+
+            part = (
+                f"[Source: {source.file_path}]\n"
+                f"{source_text}"
+            )
+
+            candidate_parts = selected_parts + [part]
+            candidate_context = "\n\n".join(
+                candidate_parts
+            )
+
+            candidate_prompt = make_prompt(
+                candidate_context
+            )
+
+            candidate_inputs = tokenize_prompt(
+                candidate_prompt
+            )
+
+            candidate_tokens = (
+                candidate_inputs["input_ids"].shape[1]
+            )
+
+            if candidate_tokens <= max_input_tokens:
+                selected_parts.append(part)
+
+        if not selected_parts:
+            raise ValueError(
+                "No retrieved source fits within "
+                "the model token budget"
+            )
+
+        context = "\n\n".join(selected_parts)
+        prompt = make_prompt(context)
+        inputs = tokenize_prompt(prompt)
+
+        input_tokens = inputs["input_ids"].shape[1]
+
+        if input_tokens > max_input_tokens:
+            raise ValueError(
+                "Input exceeds the allowed token budget"
+            )
+
+        if input_tokens + MAX_NEW_TOKENS > model_limit:
+            raise ValueError(
+                "Input and output exceed "
+                "the model context window"
+            )
 
         model = cast(Any, self.model)
 
@@ -196,9 +275,7 @@ class AnswerGenerator:
             eos_token_id=self.tokenizer.eos_token_id,
         )
 
-        generated_tokens = outputs[0][
-            inputs["input_ids"].shape[1]:
-        ]
+        generated_tokens = outputs[0][input_tokens:]
 
         answer = cast(
             str,
