@@ -77,60 +77,6 @@ def load_source_text(source: MinimalSource) -> str:
     ]
 
 
-def build_context(
-    sources: list[MinimalSource],
-) -> str:
-    """Build context from all retrieved sources."""
-    parts: list[str] = []
-
-    for number, source in enumerate(sources, start=1):
-        source_text = load_source_text(source)
-
-        parts.append(
-            f"[Source {number}: {source.file_path}]\n"
-            f"{source_text}"
-        )
-
-    return "\n\n".join(parts)
-
-
-def build_prompt(
-    question: str,
-    context: str,
-) -> str:
-    """Build a grounded RAG prompt."""
-    return (
-        "Answer the question using only the context below.\n"
-        "Give one concise answer and do not repeat yourself.\n"
-        "If the answer is not in the context, say that the context "
-        "does not provide enough information.\n\n"
-        f"Context:\n{context}\n\n"
-        f"Question: {question}\n"
-        "Answer:"
-    )
-
-
-def extract_bash_command(context: str) -> str | None:
-    """Extract the first bash command block from context."""
-    marker = "```bash"
-
-    start = context.find(marker)
-    if start == -1:
-        return None
-
-    start += len(marker)
-
-    end = context.find("```", start)
-    if end == -1:
-        return None
-
-    command = context[start:end].strip()
-
-    if not command:
-        return None
-
-    return command
-
 
 class AnswerGenerator:
     """Generate grounded answers with Qwen."""
