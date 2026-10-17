@@ -133,12 +133,14 @@ def evaluate(
     student_search_results_path: str,
     dataset_path: str,
     k: int = 5,
+    raw_directory: str | None = None,
 ) -> None:
     """Evaluate recall@k for saved search results."""
     recall = evaluate_recall(
         student_results_path=student_search_results_path,
         answered_dataset_path=dataset_path,
         k=k,
+        raw_directory=raw_directory,
     )
 
     print(f"Recall@{k}: {recall:.3f} ({recall * 100:.1f}%)")

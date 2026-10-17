@@ -1,6 +1,9 @@
+
 """Evaluate retrieval results using recall@k."""
 
+from pathlib import Path
 from typing import Any
+
 from src.utils import (
     load_json_file,
     require_positive_k,
@@ -19,7 +22,6 @@ def ranges_overlap(
         retrieved_start,
         expected_start,
     )
-
     intersection_end = min(
         retrieved_end,
         expected_end,
@@ -36,26 +38,53 @@ def ranges_overlap(
     retrieved_length = retrieved_end - retrieved_start
     expected_length = expected_end - expected_start
 
-    union = (
-        retrieved_length
-        + expected_length
-        - intersection
-    )
+    union = retrieved_length + expected_length - intersection
 
     if union <= 0:
         return False
 
-    iou = intersection / union
+    return intersection / union >= 0.05
 
-    return iou >= 0.05
+
+def normalize_source_path(
+    file_path: str,
+    raw_directory: str | None,
+) -> str:
+    """Normalize retrieved source paths for local evaluation."""
+
+    if raw_directory is None:
+        return file_path
+
+    source_path = Path(file_path)
+    selected_directory = Path(raw_directory)
+
+    try:
+        relative_path = source_path.relative_to(
+            selected_directory
+        )
+    except ValueError:
+        return file_path
+
+    return str(
+        Path("data/raw")
+        / selected_directory.name
+        / relative_path
+    )
 
 
 def source_matches(
     retrieved: dict,
     expected: dict,
+    raw_directory: str | None = None,
 ) -> bool:
-    """Return True when a retrieved source matches an expected source."""
-    if retrieved["file_path"] != expected["file_path"]:
+    """Check source path and character-range overlap."""
+
+    retrieved_path = normalize_source_path(
+        retrieved["file_path"],
+        raw_directory,
+    )
+
+    if retrieved_path != expected["file_path"]:
         return False
 
     return ranges_overlap(
@@ -70,13 +99,15 @@ def evaluate_recall(
     student_results_path: str,
     answered_dataset_path: str,
     k: int = 5,
+    raw_directory: str | None = None,
 ) -> float:
     """Calculate average recall@k over all questions."""
 
     require_positive_k(k)
-    student_data = load_json_file(student_results_path)
 
+    student_data = load_json_file(student_results_path)
     answered_data = load_json_file(answered_dataset_path)
+
     if not isinstance(student_data, dict):
         raise ValueError(
             "Student results JSON root must be an object"
@@ -120,7 +151,11 @@ def evaluate_recall(
 
         for expected in expected_sources:
             found = any(
-                source_matches(retrieved, expected)
+                source_matches(
+                    retrieved,
+                    expected,
+                    raw_directory=raw_directory,
+                )
                 for retrieved in retrieved_sources
             )
 
