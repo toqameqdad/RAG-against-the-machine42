@@ -77,7 +77,6 @@ def load_source_text(source: MinimalSource) -> str:
     ]
 
 
-
 class AnswerGenerator:
     """Generate grounded answers with Qwen."""
 
